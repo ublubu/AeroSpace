@@ -120,10 +120,20 @@ extension Monitor {
             return existing
         }
         // What if monitor configuration changed? (frame.origin is changed)
-        rearrangeWorkspacesOnMonitors()
-        // Normally, recursion should happen only once more because we must take the value from the cache
-        // (Unless, monitor configuration data race happens)
-        return self.activeWorkspace
+        // Only the outermost call rearranges; a nested call (reached from inside
+        // rearrangeWorkspacesOnMonitors) takes the stub path below.
+        if !isRearrangingWorkspacesOnMonitors {
+            rearrangeWorkspacesOnMonitors()
+            if let existing = screenPointToVisibleWorkspace[rect.topLeftCorner] {
+                return existing
+            }
+        }
+        // rearrangeWorkspacesOnMonitors() puts every live monitor's top-left corner into
+        // screenPointToVisibleWorkspace. A still-missing entry means this monitor's rect doesn't match
+        // any live monitor (e.g. several displays reconnecting at once). This branch used to be
+        // `return self.activeWorkspace`, which recursed without bound in that case and crashed.
+        // Return a stub workspace for this monitor instead; the next refresh reconciles it.
+        return getStubWorkspace(for: self)
     }
 
     @MainActor
@@ -163,7 +173,15 @@ extension CGPoint {
 }
 
 @MainActor
+private var isRearrangingWorkspacesOnMonitors: Bool = false
+
+@MainActor
 private func rearrangeWorkspacesOnMonitors() {
+    // Re-entrancy guard. The outermost call wins; nested calls return immediately and let the
+    // caller fall back to a stub workspace, which is reconciled on the next refresh.
+    if isRearrangingWorkspacesOnMonitors { return }
+    isRearrangingWorkspacesOnMonitors = true
+    defer { isRearrangingWorkspacesOnMonitors = false }
     let newScreens = monitors.map(\.rect.topLeftCorner)
     var newScreenToOldScreenMapping: [CGPoint: CGPoint] = [:]
     for (oldScreen, _) in screenPointToVisibleWorkspace {

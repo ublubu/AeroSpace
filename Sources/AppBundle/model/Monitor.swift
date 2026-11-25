@@ -33,8 +33,6 @@ final class LazyMonitor: Monitor {
     let width: CGFloat
     let height: CGFloat
     let isMain: Bool
-    private var _rect: Rect?
-    private var _visibleRect: Rect?
 
     init(monitorAppKitNsScreenScreensId: Int, isMain: Bool, _ screen: NSScreen) {
         self.monitorAppKitNsScreenScreensId = monitorAppKitNsScreenScreensId
@@ -45,12 +43,15 @@ final class LazyMonitor: Monitor {
         self.isMain = isMain
     }
 
+    // rect/visibleRect are intentionally NOT memoized. A memoized frame goes stale when the screen's
+    // geometry changes (e.g. several displays reconnect at once), and then Monitor.activeWorkspace
+    // keeps looking up an outdated top-left corner. Always read the live frame.
     var rect: Rect {
-        _rect ?? screen.rect.also { _rect = $0 }
+        screen.rect
     }
 
     var visibleRect: Rect {
-        _visibleRect ?? screen.visibleRect.also { _visibleRect = $0 }
+        screen.visibleRect
     }
 }
 
